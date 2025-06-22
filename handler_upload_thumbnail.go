@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -88,7 +89,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	path = "/" + path
+	path = fmt.Sprintf("http://localhost:%s/%s", cfg.port, path)
 
 	videoToUpdate := database.Video{
 		ID:           videoMeta.ID,
