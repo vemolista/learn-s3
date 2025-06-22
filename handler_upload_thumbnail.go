@@ -2,9 +2,11 @@ package main
 
 import (
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,13 +48,20 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	mediaType := fileHeader.Header.Get("Content-Type")
+	mediaTypeHeader := fileHeader.Header.Get("Content-Type")
 
-	extension := ".png"
-	if mediaType != "image/png" {
-		respondWithError(w, http.StatusInternalServerError, "Only png files implemented", err)
+	mediaType, _, err := mime.ParseMediaType(mediaTypeHeader)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error parsing media type", err)
 		return
 	}
+
+	if mediaType != "image/png" && mediaType != "image/jpeg" {
+		respondWithError(w, http.StatusBadRequest, "Only png or jpeg files allowed", err)
+		return
+	}
+
+	extension := "." + strings.Split(mediaType, "/")[1]
 
 	videoMeta, err := cfg.db.GetVideo(videoID)
 	if err != nil {
