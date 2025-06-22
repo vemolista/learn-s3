@@ -1,10 +1,10 @@
 package main
 
 import (
-	"encoding/base64"
-	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,14 +48,11 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	mediaType := fileHeader.Header.Get("Content-Type")
 
-	imageData, err := io.ReadAll(file)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error reading file", err)
+	extension := ".png"
+	if mediaType != "image/png" {
+		respondWithError(w, http.StatusInternalServerError, "Only png files implemented", err)
 		return
 	}
-
-	encoded := base64.StdEncoding.EncodeToString(imageData)
-	dataUrl := fmt.Sprintf("data:%v;base64,%v", mediaType, encoded)
 
 	videoMeta, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -68,11 +65,27 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	path := filepath.Join(cfg.assetsRoot, videoMeta.ID.String()+extension)
+	newFile, err := os.Create(path)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating file", err)
+		return
+	}
+
+	defer newFile.Close()
+	_, err = io.Copy(newFile, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error copying file", err)
+		return
+	}
+
+	path = "/" + path
+
 	videoToUpdate := database.Video{
 		ID:           videoMeta.ID,
 		CreatedAt:    videoMeta.CreatedAt,
 		UpdatedAt:    time.Now(),
-		ThumbnailURL: &dataUrl,
+		ThumbnailURL: &path,
 		VideoURL:     videoMeta.VideoURL,
 		CreateVideoParams: database.CreateVideoParams{
 			Title:       videoMeta.Title,
