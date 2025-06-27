@@ -85,7 +85,28 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	_, err = tempFile.Seek(0, io.SeekStart)
+	outputFilePath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not reprocess video", err)
+		return
+	}
+	defer os.Remove(outputFilePath)
+
+	processedFile, err := os.Open(outputFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not open processed video", err)
+		return
+	}
+	defer processedFile.Close()
+
+	ratio, err := getVideoAspectRatio(processedFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not get video aspect ratio", err)
+		return
+	}
+	prefix := getS3KeyPrefix(ratio)
+
+	_, err = processedFile.Seek(0, io.SeekStart)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not set read offset", err)
 		return
@@ -99,12 +120,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	randomStr := base64.RawURLEncoding.EncodeToString(randomBytes)
-	key := fmt.Sprintf("%s%s", randomStr, extension)
+	key := fmt.Sprintf("%s/%s%s", prefix, randomStr, extension)
 
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &key,
-		Body:        tempFile,
+		Body:        processedFile,
 		ContentType: &mediaType,
 	})
 	if err != nil {
@@ -112,7 +133,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	videoUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, key)
+	videoUrl := fmt.Sprintf("%s/%s", cfg.s3CfDistribution, key)
 
 	err = cfg.db.UpdateVideo(database.Video{
 		ID:           videoMeta.ID,
